@@ -51,7 +51,7 @@ See [SECURITY.md](SECURITY.md) for the detailed threat boundary.
 ## Providers and current v1 defaults
 
 - Google Gemini — `gemini-3.7-flash`
-- OpenAI — `gpt-5.6` (alias of the GPT-5.6 Sol family)
+- OpenAI — `gpt-5.6` (GPT-5.6 Sol family alias)
 - Anthropic Claude — `claude-sonnet-5`
 - xAI Grok — `grok-4.6`
 
@@ -63,10 +63,13 @@ Version 1 supports local daily schedules (`minute hour * * *`) through WorkManag
 
 ## Build
 
+Production v1 deliberately stays on the latest stable pre-API-37 Compose line so the public release does not depend on a preview Android SDK.
+
 Pinned toolchain:
 
-- Android API 37 (`platforms;android-37.0`)
+- Android API 36 (compile/target)
 - SDK Build Tools 36.0.0
+- Jetpack Compose 1.11.x via BOM `2026.06.00`
 - Android Gradle Plugin 9.1.1
 - Gradle 9.3.1
 - JDK 17
