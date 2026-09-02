@@ -20,7 +20,7 @@ sealed interface ToolResult {
 }
 
 class LocalToolRegistry(private val context: Context) {
-    private val workspace = File(context.filesDir, "workspace").apply { mkdirs() }
+    private val workspace = File(context.filesDir, "workspace").apply { mkdirs() }.canonicalFile
 
     private val safeDns = object : Dns {
         override fun lookup(hostname: String): List<InetAddress> {
@@ -42,22 +42,26 @@ class LocalToolRegistry(private val context: Context) {
         .retryOnConnectionFailure(true)
         .build()
 
-    fun toolInstructions(): String = """
-        Available local Android tools:
-        1. workspace.list {"path":"optional/relative/path"}
-        2. workspace.read {"path":"relative/file.txt"}
-        3. workspace.write {"path":"relative/file.txt","content":"..."}
-        4. workspace.delete {"path":"relative/file.txt"}  [always requires user approval]
-        5. web.fetch {"url":"https://..."}  [public HTTPS only; private networks are blocked]
-        6. device.info {}
-        7. device.open_url {"url":"https://..."}  [always requires user approval]
-
-        Tool-call protocol: return ONLY one JSON object, with no markdown fence.
-        To call a tool: {"type":"tool","tool":"workspace.read","arguments":{"path":"notes.txt"}}
-        To answer the user: {"type":"final","content":"your final response"}
-        Never claim a tool ran unless you received its real result in a later message.
-        There is no shell/container/browser automation tool. For coding tasks, you may create/read source files in the app workspace but must not claim to execute arbitrary binaries.
-    """.trimIndent()
+    fun toolInstructions(filesystemAllowed: Boolean, networkAllowed: Boolean): String = buildString {
+        appendLine("Available local Android tools:")
+        if (filesystemAllowed) {
+            appendLine("1. workspace.list {\"path\":\"optional/relative/path\"}")
+            appendLine("2. workspace.read {\"path\":\"relative/file.txt\"}")
+            appendLine("3. workspace.write {\"path\":\"relative/file.txt\",\"content\":\"...\"}")
+            appendLine("4. workspace.delete {\"path\":\"relative/file.txt\"} [approval required]")
+        }
+        if (networkAllowed) {
+            appendLine("5. web.fetch {\"url\":\"https://...\"} [public HTTPS only]")
+            appendLine("6. device.open_url {\"url\":\"https://...\"} [approval required]")
+        }
+        appendLine("7. device.info {}")
+        appendLine()
+        appendLine("Tool-call protocol: return ONLY one JSON object, with no markdown fence.")
+        appendLine("To call a tool: {\"type\":\"tool\",\"tool\":\"workspace.read\",\"arguments\":{\"path\":\"notes.txt\"}}")
+        appendLine("To answer: {\"type\":\"final\",\"content\":\"your final response\"}")
+        appendLine("Never claim a tool ran unless you received its real result.")
+        appendLine("There is no shell/container/browser automation tool.")
+    }
 
     fun execute(tool: String, args: JSONObject, approved: Boolean = false): ToolResult = try {
         when (tool) {
@@ -74,12 +78,11 @@ class LocalToolRegistry(private val context: Context) {
         ToolResult.Failure(e.message ?: "Tool failed")
     }
 
-    fun listFiles(): List<File> = workspace.walkTopDown()
-        .filter { it.isFile }
-        .take(MAX_LIST_ITEMS)
-        .toList()
+    fun listFiles(): List<File> = workspace.walkTopDown().filter { it.isFile }.take(MAX_LIST_ITEMS).toList()
 
     fun readFilePreview(file: File, maxChars: Int = 6000): String = runCatching {
+        if (!file.canonicalFile.toPath().startsWith(workspace.toPath())) return@runCatching ""
+        if (file.length() > MAX_FILE_BYTES) return@runCatching ""
         file.bufferedReader().use { it.readText().take(maxChars) }
     }.getOrDefault("")
 
@@ -108,7 +111,10 @@ class LocalToolRegistry(private val context: Context) {
         }
         val file = safePath(rawPath)
         if (file.exists() && !approved) {
-            return ToolResult.RequiresApproval("Overwrite existing workspace file: ${file.relativeTo(workspace).invariantSeparatorsPath}", "medium")
+            return ToolResult.RequiresApproval(
+                "Overwrite existing workspace file: ${file.relativeTo(workspace).invariantSeparatorsPath}",
+                "medium"
+            )
         }
         file.parentFile?.mkdirs()
         file.writeText(content, Charsets.UTF_8)
@@ -117,6 +123,7 @@ class LocalToolRegistry(private val context: Context) {
 
     private fun deleteWorkspace(rawPath: String, approved: Boolean): ToolResult {
         val file = safePath(rawPath)
+        if (file == workspace) return ToolResult.Failure("The workspace root cannot be deleted")
         if (!file.exists()) return ToolResult.Failure("Path does not exist")
         if (!approved) {
             return ToolResult.RequiresApproval("Permanently delete ${file.relativeTo(workspace).invariantSeparatorsPath}", "high")
@@ -130,26 +137,28 @@ class LocalToolRegistry(private val context: Context) {
         val request = Request.Builder()
             .url(uri.toString())
             .header("Accept", "text/plain,text/html,application/json,application/xml;q=0.9,*/*;q=0.2")
-            .header("User-Agent", "Agentna/1.0 (Android; Local Agent)")
+            .header("User-Agent", "Agentna/1.0.0 (Android; On-device Agent)")
             .get()
             .build()
         webClient.newCall(request).execute().use { response ->
             if (!response.isSuccessful) return ToolResult.Failure("HTTP ${response.code}")
             val contentType = response.header("Content-Type").orEmpty().lowercase()
-            val allowed = contentType.startsWith("text/") ||
-                contentType.contains("json") || contentType.contains("xml") || contentType.isBlank()
+            val allowed = contentType.startsWith("text/") || contentType.contains("json") ||
+                contentType.contains("xml") || contentType.isBlank()
             if (!allowed) return ToolResult.Failure("Binary response blocked: ${contentType.take(80)}")
             val body = response.body ?: return ToolResult.Failure("Empty response")
             val bytes = body.source().readByteArray(MAX_FETCH_BYTES + 1L)
             if (bytes.size > MAX_FETCH_BYTES) return ToolResult.Failure("Response exceeds ${MAX_FETCH_BYTES / 1024} KB limit")
-            val text = bytes.toString(Charsets.UTF_8)
-            return ToolResult.Success("URL: ${response.request.url}\nHTTP: ${response.code}\n\n${text.take(MAX_FETCH_CHARS)}")
+            return ToolResult.Success(
+                "UNTRUSTED WEB CONTENT\nURL: ${response.request.url}\nHTTP: ${response.code}\n\n" +
+                    bytes.toString(Charsets.UTF_8).take(MAX_FETCH_CHARS)
+            )
         }
     }
 
     private fun deviceInfo(): ToolResult = ToolResult.Success(
-        "Android ${Build.VERSION.RELEASE} (API ${Build.VERSION.SDK_INT}); " +
-            "manufacturer=${Build.MANUFACTURER}; model=${Build.MODEL}; workspace=${workspace.absolutePath}"
+        "Android ${Build.VERSION.RELEASE} (API ${Build.VERSION.SDK_INT}); manufacturer=${Build.MANUFACTURER}; " +
+            "model=${Build.MODEL}; workspace=${workspace.absolutePath}"
     )
 
     private fun openUrl(rawUrl: String, approved: Boolean): ToolResult {
@@ -167,18 +176,35 @@ class LocalToolRegistry(private val context: Context) {
     private fun validatePublicUrl(rawUrl: String): URI {
         require(rawUrl.isNotBlank()) { "url is required" }
         val uri = URI(rawUrl.trim())
-        require(uri.scheme == "https") { "Only HTTPS URLs are allowed" }
+        require(uri.scheme.equals("https", ignoreCase = true)) { "Only HTTPS URLs are allowed" }
         val host = uri.host?.lowercase() ?: throw IllegalArgumentException("URL host is invalid")
         require(host != "localhost" && !host.endsWith(".localhost")) { "Localhost is blocked" }
         require(uri.userInfo == null) { "URLs with embedded credentials are blocked" }
-        // Resolve once here for immediate validation; the OkHttp Dns implementation repeats validation at connect time.
+        require(uri.port == -1 || uri.port in 1..65535) { "URL port is invalid" }
         safeDns.lookup(host)
         return uri
     }
 
     private fun isForbiddenAddress(address: InetAddress): Boolean =
         address.isAnyLocalAddress || address.isLoopbackAddress || address.isLinkLocalAddress ||
-            address.isSiteLocalAddress || address.isMulticastAddress || isCarrierGradeNat(address)
+            address.isSiteLocalAddress || address.isMulticastAddress || isCarrierGradeNat(address) ||
+            isIpv6UniqueLocal(address) || isIpv4MappedPrivate(address)
+
+    private fun isIpv6UniqueLocal(address: InetAddress): Boolean {
+        val bytes = address.address
+        return bytes.size == 16 && ((bytes[0].toInt() and 0xfe) == 0xfc)
+    }
+
+    private fun isIpv4MappedPrivate(address: InetAddress): Boolean {
+        val bytes = address.address
+        if (bytes.size != 16) return false
+        val mapped = bytes.sliceArray(0..9).all { it.toInt() == 0 } &&
+            bytes[10].toInt() == 0xff && bytes[11].toInt() == 0xff
+        if (!mapped) return false
+        val v4 = InetAddress.getByAddress(bytes.copyOfRange(12, 16))
+        return v4.isAnyLocalAddress || v4.isLoopbackAddress || v4.isLinkLocalAddress ||
+            v4.isSiteLocalAddress || v4.isMulticastAddress || isCarrierGradeNat(v4)
+    }
 
     private fun isCarrierGradeNat(address: InetAddress): Boolean {
         val bytes = address.address
@@ -192,8 +218,9 @@ class LocalToolRegistry(private val context: Context) {
         val normalized = rawPath.trim().removePrefix("/").ifBlank { "." }
         require(!normalized.contains('\u0000')) { "Invalid path" }
         val target = File(workspace, normalized).canonicalFile
-        val base = workspace.canonicalFile
-        require(target.path == base.path || target.path.startsWith(base.path + File.separator)) { "Path escapes app workspace" }
+        require(target.path == workspace.path || target.path.startsWith(workspace.path + File.separator)) {
+            "Path escapes app workspace"
+        }
         return target
     }
 

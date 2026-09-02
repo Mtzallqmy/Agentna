@@ -18,8 +18,8 @@ object ProviderCatalog {
         ProviderDefinition(
             id = "openai",
             displayName = "OpenAI",
-            defaultModel = "gpt-5.1",
-            suggestedModels = listOf("gpt-5.1", "gpt-5-mini", "gpt-5-nano", "gpt-4.1")
+            defaultModel = "gpt-5.6",
+            suggestedModels = listOf("gpt-5.6", "gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna")
         ),
         ProviderDefinition(
             id = "anthropic",

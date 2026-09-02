@@ -17,7 +17,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         ExecutionLogEntity::class,
         AgentStateEntity::class
     ],
-    version = 3,
+    version = 4,
     exportSchema = true
 )
 abstract class AgentDatabase : RoomDatabase() {
@@ -38,6 +38,13 @@ abstract class AgentDatabase : RoomDatabase() {
             }
         }
 
+        private val MIGRATION_3_4 = object : Migration(3, 4) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE agents ADD COLUMN fallbackProvider TEXT DEFAULT NULL")
+                db.execSQL("ALTER TABLE agents ADD COLUMN fallbackModel TEXT DEFAULT NULL")
+            }
+        }
+
         @Volatile private var INSTANCE: AgentDatabase? = null
 
         fun getDatabase(context: Context): AgentDatabase = INSTANCE ?: synchronized(this) {
@@ -46,7 +53,7 @@ abstract class AgentDatabase : RoomDatabase() {
                 AgentDatabase::class.java,
                 DATABASE_NAME
             )
-                .addMigrations(MIGRATION_2_3)
+                .addMigrations(MIGRATION_2_3, MIGRATION_3_4)
                 .build()
                 .also { INSTANCE = it }
         }
