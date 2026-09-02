@@ -6,7 +6,7 @@ plugins {
 
 android {
     namespace = "com.mtzallqmy.agentna"
-    compileSdk = 37
+    compileSdk = 36
 
     defaultConfig {
         applicationId = "com.mtzallqmy.agentna"

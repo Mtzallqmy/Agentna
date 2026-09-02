@@ -1,0 +1,144 @@
+name: Release Agentna
+
+on:
+  workflow_run:
+    workflows: ["Android CI"]
+    types: [completed]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Release tag
+        required: true
+        default: v1.0.0
+
+permissions:
+  contents: write
+
+concurrency:
+  group: agentna-release-v1
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event.workflow_run.conclusion == 'success' &&
+       github.event.workflow_run.head_branch == 'main' &&
+       contains(github.event.workflow_run.head_commit.message, '[release]'))
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    env:
+      RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || 'v1.0.0' }}
+      RELEASE_SHA: ${{ github.event_name == 'workflow_dispatch' && github.sha || github.event.workflow_run.head_sha }}
+      ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+      STORE_PASSWORD: ${{ secrets.ANDROID_STORE_PASSWORD }}
+      KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+      KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+    steps:
+      - name: Checkout release commit
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ env.RELEASE_SHA }}
+          fetch-depth: 0
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v4
+        with:
+          packages: ''
+
+      - name: Install pinned stable Android SDK components
+        shell: bash
+        run: |
+          sdkmanager --install "platforms;android-36" "build-tools;36.0.0" "platform-tools"
+
+      - name: Set up pinned Gradle
+        uses: gradle/actions/setup-gradle@v6
+        with:
+          gradle-version: '9.3.1'
+
+      - name: Verify release version
+        shell: bash
+        run: |
+          grep -q 'versionName = "1.0.0"' app/build.gradle.kts
+          grep -q 'versionCode = 1' app/build.gradle.kts
+
+      - name: Configure durable release signing when available
+        shell: bash
+        run: |
+          if [[ -n "$ANDROID_KEYSTORE_BASE64" && -n "$STORE_PASSWORD" && -n "$KEY_ALIAS" && -n "$KEY_PASSWORD" ]]; then
+            echo "$ANDROID_KEYSTORE_BASE64" | base64 --decode > "$RUNNER_TEMP/agentna-release.jks"
+            echo "KEYSTORE_PATH=$RUNNER_TEMP/agentna-release.jks" >> "$GITHUB_ENV"
+            echo "SIGNED_RELEASE=true" >> "$GITHUB_ENV"
+          else
+            echo "SIGNED_RELEASE=false" >> "$GITHUB_ENV"
+          fi
+
+      - name: Build release artifacts
+        shell: bash
+        run: |
+          gradle --no-daemon --stacktrace :app:testDebugUnitTest :app:lintRelease :app:assembleRelease :app:bundleRelease
+          if [[ "$SIGNED_RELEASE" != "true" ]]; then
+            gradle --no-daemon --stacktrace :app:assembleDebug
+          fi
+
+      - name: Stage release assets
+        shell: bash
+        run: |
+          mkdir -p dist
+          if [[ "$SIGNED_RELEASE" == "true" ]]; then
+            cp app/build/outputs/apk/release/app-release.apk dist/Agentna-v1.0.0.apk
+            cp app/build/outputs/bundle/release/app-release.aab dist/Agentna-v1.0.0.aab
+          else
+            cp app/build/outputs/apk/debug/app-debug.apk dist/Agentna-v1.0.0-preview.apk
+            cp app/build/outputs/bundle/release/app-release.aab dist/Agentna-v1.0.0-unsigned.aab
+          fi
+          (cd dist && sha256sum * > SHA256SUMS.txt)
+
+      - name: Create release notes
+        shell: bash
+        run: |
+          cat > release-notes.md <<'EOF'
+          # Agentna v1.0.0
+
+          Android-first local AI agent runtime. The orchestration loop, tools, approvals, workspace, logs, state, and automations run on the phone; only model inference is sent directly to the configured provider.
+
+          Highlights:
+          - Direct OpenAI, Gemini, Anthropic and xAI provider APIs
+          - Android Keystore-protected API keys
+          - Room-backed agents, conversations, approvals, logs and automations
+          - WorkManager daily local automations
+          - Workspace confinement and SSRF defenses
+          - Explicit approval gates for destructive/sensitive actions
+          - Arabic/English RTL-aware Compose interface
+          - Production build pinned to stable Android API 36 and Compose 1.11
+
+          See CHANGELOG.md and SECURITY.md for details.
+          EOF
+          if [[ "$SIGNED_RELEASE" != "true" ]]; then
+            cat >> release-notes.md <<'EOF'
+
+          **Signing status:** repository signing secrets are not configured. This GitHub release is therefore marked as a pre-release. The included APK is debug-signed for evaluation and the AAB is unsigned; neither is the production signing identity. Configure the four Android signing secrets documented in docs/RELEASE.md and re-run this workflow to publish durable production-signed artifacts.
+          EOF
+          fi
+
+      - name: Publish GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          git tag -f "$RELEASE_TAG" "$RELEASE_SHA"
+          git push origin "refs/tags/$RELEASE_TAG" --force
+          if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
+            gh release delete "$RELEASE_TAG" --yes
+          fi
+          if [[ "$SIGNED_RELEASE" == "true" ]]; then
+            gh release create "$RELEASE_TAG" dist/* --title "Agentna v1.0.0" --notes-file release-notes.md --verify-tag
+          else
+            gh release create "$RELEASE_TAG" dist/* --title "Agentna v1.0.0 Preview" --notes-file release-notes.md --verify-tag --prerelease
+          fi
