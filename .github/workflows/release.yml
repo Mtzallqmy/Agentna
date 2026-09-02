@@ -52,10 +52,10 @@ jobs:
         with:
           packages: ''
 
-      - name: Install pinned Android SDK components
+      - name: Install pinned stable Android SDK components
         shell: bash
         run: |
-          sdkmanager --install --channel=3 "platforms;android-37.0" "build-tools;36.0.0" "platform-tools"
+          sdkmanager --install "platforms;android-36" "build-tools;36.0.0" "platform-tools"
 
       - name: Set up pinned Gradle
         uses: gradle/actions/setup-gradle@v6
@@ -116,6 +116,7 @@ jobs:
           - Workspace confinement and SSRF defenses
           - Explicit approval gates for destructive/sensitive actions
           - Arabic/English RTL-aware Compose interface
+          - Production build pinned to stable Android API 36 and Compose 1.11
 
           See CHANGELOG.md and SECURITY.md for details.
           EOF
