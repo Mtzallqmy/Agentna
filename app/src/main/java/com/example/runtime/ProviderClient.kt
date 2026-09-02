@@ -1,6 +1,8 @@
 package com.mtzallqmy.agentna.runtime
 
 import com.mtzallqmy.agentna.security.SecureApiKeyStore
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -27,11 +29,11 @@ class ProviderClient(
         model: String,
         systemPrompt: String,
         messages: List<ProviderMessage>
-    ): String {
+    ): String = withContext(Dispatchers.IO) {
         val normalized = provider.lowercase()
         val apiKey = keyStore.getApiKey(normalized)
             ?: throw ProviderException("No API key configured for ${ProviderCatalog.definition(normalized).displayName}")
-        return when (normalized) {
+        when (normalized) {
             "openai" -> openAiResponses(apiKey, model, systemPrompt, messages)
             "gemini" -> geminiGenerateContent(apiKey, model, systemPrompt, messages)
             "anthropic" -> anthropicMessages(apiKey, model, systemPrompt, messages)

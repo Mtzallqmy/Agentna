@@ -18,9 +18,7 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.withContext
 import java.util.UUID
 
-/**
- * Local-only repository. Room is the source of truth; no gateway or application server is contacted.
- */
+/** Local-only repository. Room is the source of truth; no gateway or application server is contacted. */
 class AgentRepository(context: Context) {
     val database: AgentDatabase = AgentDatabase.getDatabase(context)
     private val agentDao = database.agentDao()
@@ -54,7 +52,6 @@ class AgentRepository(context: Context) {
 
     suspend fun seedDefaultDataIfEmpty() = withContext(Dispatchers.IO) {
         if (agentDao.getAgentById(DEFAULT_AGENT_ID) != null) return@withContext
-
         val defaultAgent = AgentModel(
             id = DEFAULT_AGENT_ID,
             name = "Agentna Executive",
@@ -77,7 +74,7 @@ class AgentRepository(context: Context) {
             icon = "terminal",
             systemPrompt = "You are a principal software engineer. You can inspect and write source files in the app workspace. Never claim to execute a shell or compiler because no arbitrary shell tool exists on Android.",
             primaryProvider = "openai",
-            primaryModel = "gpt-5.1",
+            primaryModel = "gpt-5.6",
             temperature = 0.2f,
             maxSteps = 14,
             computerPermission = false,
@@ -156,15 +153,7 @@ class AgentRepository(context: Context) {
     }
 
     suspend fun saveMessage(msg: MessageModel) = withContext(Dispatchers.IO) {
-        msgDao.insertMessage(
-            MessageEntity(
-                id = msg.id,
-                conversationId = msg.conversationId,
-                role = msg.role,
-                content = msg.content,
-                createdAt = msg.createdAt.ifBlank(::nowString)
-            )
-        )
+        msgDao.insertMessage(MessageEntity(msg.id, msg.conversationId, msg.role, msg.content, msg.createdAt.ifBlank(::nowString)))
     }
 
     suspend fun saveApproval(approval: ApprovalModel) = withContext(Dispatchers.IO) {
@@ -188,8 +177,7 @@ class AgentRepository(context: Context) {
         approvalDao.updateApprovalStatus(approvalId, decision)
     }
 
-    fun getLogsForConversation(convId: String): Flow<List<ExecutionLogEntity>> =
-        logDao.getLogsForConversation(convId)
+    fun getLogsForConversation(convId: String): Flow<List<ExecutionLogEntity>> = logDao.getLogsForConversation(convId)
 
     suspend fun logExecutionEvent(
         runId: String,
@@ -259,4 +247,3 @@ class AgentRepository(context: Context) {
 
     companion object { private const val DEFAULT_AGENT_ID = "agent-default-1" }
 }
-
