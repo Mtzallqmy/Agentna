@@ -15,7 +15,7 @@ sealed interface AgentRunResult {
     data class Failed(val message: String) : AgentRunResult
 }
 
-data class PendingAgentRun internal constructor(
+data class PendingAgentRun(
     val runId: String,
     val conversationId: String,
     val sourcePrompt: String,
