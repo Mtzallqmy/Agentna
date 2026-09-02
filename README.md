@@ -65,7 +65,7 @@ Version 1 supports local daily schedules (`minute hour * * *`) through WorkManag
 
 Pinned toolchain:
 
-- Android API 37
+- Android API 37 (`platforms;android-37.0`)
 - SDK Build Tools 36.0.0
 - Android Gradle Plugin 9.1.1
 - Gradle 9.3.1
