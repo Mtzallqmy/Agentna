@@ -69,6 +69,21 @@ data class ExecutionLogEntity(
     val timestamp: Long = System.currentTimeMillis()
 )
 
+@Entity(tableName = "automations")
+data class AutomationEntity(
+    @PrimaryKey val id: String,
+    val name: String,
+    val description: String,
+    val type: String,
+    val cronExpression: String,
+    val agentId: String,
+    val prompt: String,
+    val enabled: Boolean,
+    val lastRunAt: String? = null,
+    val nextRunAt: String? = null,
+    val lastStatus: String? = null
+)
+
 @Entity(tableName = "agent_states")
 data class AgentStateEntity(
     @PrimaryKey val agentId: String,

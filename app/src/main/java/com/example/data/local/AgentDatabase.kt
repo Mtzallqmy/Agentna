@@ -15,9 +15,10 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         MessageEntity::class,
         ApprovalEntity::class,
         ExecutionLogEntity::class,
-        AgentStateEntity::class
+        AgentStateEntity::class,
+        AutomationEntity::class
     ],
-    version = 4,
+    version = 5,
     exportSchema = true
 )
 abstract class AgentDatabase : RoomDatabase() {
@@ -27,6 +28,7 @@ abstract class AgentDatabase : RoomDatabase() {
     abstract fun approvalDao(): ApprovalDao
     abstract fun executionLogDao(): ExecutionLogDao
     abstract fun agentStateDao(): AgentStateDao
+    abstract fun automationDao(): AutomationDao
 
     companion object {
         const val DATABASE_NAME = "agentna_local.db"
@@ -45,6 +47,26 @@ abstract class AgentDatabase : RoomDatabase() {
             }
         }
 
+        private val MIGRATION_4_5 = object : Migration(4, 5) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    """CREATE TABLE IF NOT EXISTS automations (
+                        id TEXT NOT NULL PRIMARY KEY,
+                        name TEXT NOT NULL,
+                        description TEXT NOT NULL,
+                        type TEXT NOT NULL,
+                        cronExpression TEXT NOT NULL,
+                        agentId TEXT NOT NULL,
+                        prompt TEXT NOT NULL,
+                        enabled INTEGER NOT NULL,
+                        lastRunAt TEXT,
+                        nextRunAt TEXT,
+                        lastStatus TEXT
+                    )""".trimIndent()
+                )
+            }
+        }
+
         @Volatile private var INSTANCE: AgentDatabase? = null
 
         fun getDatabase(context: Context): AgentDatabase = INSTANCE ?: synchronized(this) {
@@ -53,7 +75,7 @@ abstract class AgentDatabase : RoomDatabase() {
                 AgentDatabase::class.java,
                 DATABASE_NAME
             )
-                .addMigrations(MIGRATION_2_3, MIGRATION_3_4)
+                .addMigrations(MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5)
                 .build()
                 .also { INSTANCE = it }
         }
