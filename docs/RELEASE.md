@@ -1,6 +1,8 @@
 # Release process
 
-Agentna `1.0.0` uses Android Gradle Plugin 9.1.1, Gradle 9.3.1, JDK 17, Android API 37 and SDK Build Tools 36.0.0.
+Agentna `1.0.0` uses Android Gradle Plugin 9.1.1, Gradle 9.3.1, JDK 17, stable Android API 36, SDK Build Tools 36.0.0, and the stable Compose 1.11 line through BOM `2026.06.00`.
+
+The public v1 release intentionally does not compile against Android API 37 preview. Compose 1.12 moves to API 37, so that upgrade is deferred until the Android SDK is suitable for public production distribution.
 
 ## Durable production signing
 
