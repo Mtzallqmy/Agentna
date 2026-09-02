@@ -39,10 +39,10 @@ AgentEngine (multi-step local loop)
 
 The app supports direct API calls to:
 
-- Google Gemini (default: `gemini-3.7-flash`)
-- OpenAI (default: `gpt-5.1`)
-- Anthropic Claude (default: `claude-sonnet-5`)
-- xAI Grok (default: `grok-4.6`)
+- Google Gemini
+- OpenAI
+- Anthropic Claude
+- xAI Grok
 
 Model IDs are editable in Settings so provider model migrations do not require an app release.
 
@@ -60,7 +60,7 @@ gradle :app:testDebugUnitTest
 gradle :app:lintDebug
 ```
 
-GitHub Actions pins the same JDK/Gradle versions and runs build + tests + lint on every push and pull request.
+GitHub Actions pins the same JDK/Gradle versions and runs build + tests + lint on every push and pull request. A green CI run is required before a release tag is published.
 
 ## Release signing
 
@@ -71,7 +71,7 @@ Production signing material is never committed. Release builds accept these envi
 - `KEY_ALIAS`
 - `KEY_PASSWORD`
 
-Without them, Gradle can compile an unsigned release bundle/APK, but the production release workflow intentionally requires signing secrets before publishing an installable release.
+Without them, Gradle can compile an unsigned release bundle/APK, but production publishing must use a durable signing key that can also sign future updates.
 
 ## License
 
