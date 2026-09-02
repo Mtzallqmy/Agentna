@@ -33,10 +33,10 @@ jobs:
         with:
           packages: ''
 
-      - name: Install pinned Android SDK components
+      - name: Install pinned stable Android SDK components
         shell: bash
         run: |
-          sdkmanager --install --channel=3 "platforms;android-37.0" "build-tools;36.0.0" "platform-tools"
+          sdkmanager --install "platforms;android-36" "build-tools;36.0.0" "platform-tools"
 
       - name: Set up pinned Gradle
         uses: gradle/actions/setup-gradle@v6
@@ -49,7 +49,7 @@ jobs:
           gradle --no-daemon --stacktrace --warning-mode all
           :app:assembleDebug :app:testDebugUnitTest :app:lintDebug
 
-      - name: Upload debug APK and lint report
+      - name: Upload debug APK and reports
         if: always()
         uses: actions/upload-artifact@v6
         with:
