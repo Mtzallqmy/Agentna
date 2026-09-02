@@ -49,12 +49,13 @@ jobs:
 
       - name: Set up Android SDK
         uses: android-actions/setup-android@v4
+        with:
+          packages: ''
 
       - name: Install pinned Android SDK components
         shell: bash
         run: |
-          yes | sdkmanager --licenses >/dev/null || true
-          sdkmanager "platforms;android-37" "build-tools;36.0.0" "platform-tools"
+          sdkmanager --install --channel=3 "platforms;android-37.0" "build-tools;36.0.0" "platform-tools"
 
       - name: Set up pinned Gradle
         uses: gradle/actions/setup-gradle@v6
