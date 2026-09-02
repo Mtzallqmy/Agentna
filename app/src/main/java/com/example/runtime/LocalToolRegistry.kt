@@ -25,7 +25,7 @@ class LocalToolRegistry(private val context: Context) {
     private val safeDns = object : Dns {
         override fun lookup(hostname: String): List<InetAddress> {
             val addresses = Dns.SYSTEM.lookup(hostname)
-            if (addresses.isEmpty() || addresses.any(::isForbiddenAddress)) {
+            if (addresses.isEmpty() || addresses.any(NetworkSafety::isForbiddenAddress)) {
                 throw java.net.UnknownHostException("Private or local network addresses are blocked")
             }
             return addresses
@@ -106,16 +106,9 @@ class LocalToolRegistry(private val context: Context) {
 
     private fun writeWorkspace(rawPath: String, content: String, approved: Boolean): ToolResult {
         if (rawPath.isBlank()) return ToolResult.Failure("path is required")
-        if (content.toByteArray(Charsets.UTF_8).size > MAX_FILE_BYTES) {
-            return ToolResult.Failure("Content exceeds the ${MAX_FILE_BYTES / 1024} KB write limit")
-        }
+        if (content.toByteArray(Charsets.UTF_8).size > MAX_FILE_BYTES) return ToolResult.Failure("Content exceeds the ${MAX_FILE_BYTES / 1024} KB write limit")
         val file = safePath(rawPath)
-        if (file.exists() && !approved) {
-            return ToolResult.RequiresApproval(
-                "Overwrite existing workspace file: ${file.relativeTo(workspace).invariantSeparatorsPath}",
-                "medium"
-            )
-        }
+        if (file.exists() && !approved) return ToolResult.RequiresApproval("Overwrite existing workspace file: ${file.relativeTo(workspace).invariantSeparatorsPath}", "medium")
         file.parentFile?.mkdirs()
         file.writeText(content, Charsets.UTF_8)
         return ToolResult.Success("Saved ${file.relativeTo(workspace).invariantSeparatorsPath} (${file.length()} bytes)")
@@ -125,40 +118,30 @@ class LocalToolRegistry(private val context: Context) {
         val file = safePath(rawPath)
         if (file == workspace) return ToolResult.Failure("The workspace root cannot be deleted")
         if (!file.exists()) return ToolResult.Failure("Path does not exist")
-        if (!approved) {
-            return ToolResult.RequiresApproval("Permanently delete ${file.relativeTo(workspace).invariantSeparatorsPath}", "high")
-        }
+        if (!approved) return ToolResult.RequiresApproval("Permanently delete ${file.relativeTo(workspace).invariantSeparatorsPath}", "high")
         val deleted = if (file.isDirectory) file.deleteRecursively() else file.delete()
         return if (deleted) ToolResult.Success("Deleted ${file.name}") else ToolResult.Failure("Could not delete path")
     }
 
     private fun fetchWeb(rawUrl: String): ToolResult {
         val uri = validatePublicUrl(rawUrl)
-        val request = Request.Builder()
-            .url(uri.toString())
+        val request = Request.Builder().url(uri.toString())
             .header("Accept", "text/plain,text/html,application/json,application/xml;q=0.9,*/*;q=0.2")
-            .header("User-Agent", "Agentna/1.0.0 (Android; On-device Agent)")
-            .get()
-            .build()
+            .header("User-Agent", "Agentna/1.0.0 (Android; On-device Agent)").get().build()
         webClient.newCall(request).execute().use { response ->
             if (!response.isSuccessful) return ToolResult.Failure("HTTP ${response.code}")
             val contentType = response.header("Content-Type").orEmpty().lowercase()
-            val allowed = contentType.startsWith("text/") || contentType.contains("json") ||
-                contentType.contains("xml") || contentType.isBlank()
+            val allowed = contentType.startsWith("text/") || contentType.contains("json") || contentType.contains("xml") || contentType.isBlank()
             if (!allowed) return ToolResult.Failure("Binary response blocked: ${contentType.take(80)}")
             val body = response.body ?: return ToolResult.Failure("Empty response")
             val bytes = body.source().readByteArray(MAX_FETCH_BYTES + 1L)
             if (bytes.size > MAX_FETCH_BYTES) return ToolResult.Failure("Response exceeds ${MAX_FETCH_BYTES / 1024} KB limit")
-            return ToolResult.Success(
-                "UNTRUSTED WEB CONTENT\nURL: ${response.request.url}\nHTTP: ${response.code}\n\n" +
-                    bytes.toString(Charsets.UTF_8).take(MAX_FETCH_CHARS)
-            )
+            return ToolResult.Success("UNTRUSTED WEB CONTENT\nURL: ${response.request.url}\nHTTP: ${response.code}\n\n" + bytes.toString(Charsets.UTF_8).take(MAX_FETCH_CHARS))
         }
     }
 
     private fun deviceInfo(): ToolResult = ToolResult.Success(
-        "Android ${Build.VERSION.RELEASE} (API ${Build.VERSION.SDK_INT}); manufacturer=${Build.MANUFACTURER}; " +
-            "model=${Build.MODEL}; workspace=${workspace.absolutePath}"
+        "Android ${Build.VERSION.RELEASE} (API ${Build.VERSION.SDK_INT}); manufacturer=${Build.MANUFACTURER}; model=${Build.MODEL}; workspace=${workspace.absolutePath}"
     )
 
     private fun openUrl(rawUrl: String, approved: Boolean): ToolResult {
@@ -166,11 +149,8 @@ class LocalToolRegistry(private val context: Context) {
         if (!approved) return ToolResult.RequiresApproval("Open external URL in another app: $uri", "medium")
         val intent = Intent(Intent.ACTION_VIEW, Uri.parse(uri.toString())).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
         return if (intent.resolveActivity(context.packageManager) != null) {
-            context.startActivity(intent)
-            ToolResult.Success("Opened $uri with the user's selected browser/app")
-        } else {
-            ToolResult.Failure("No app is available to open this URL")
-        }
+            context.startActivity(intent); ToolResult.Success("Opened $uri with the user's selected browser/app")
+        } else ToolResult.Failure("No app is available to open this URL")
     }
 
     private fun validatePublicUrl(rawUrl: String): URI {
@@ -185,42 +165,11 @@ class LocalToolRegistry(private val context: Context) {
         return uri
     }
 
-    private fun isForbiddenAddress(address: InetAddress): Boolean =
-        address.isAnyLocalAddress || address.isLoopbackAddress || address.isLinkLocalAddress ||
-            address.isSiteLocalAddress || address.isMulticastAddress || isCarrierGradeNat(address) ||
-            isIpv6UniqueLocal(address) || isIpv4MappedPrivate(address)
-
-    private fun isIpv6UniqueLocal(address: InetAddress): Boolean {
-        val bytes = address.address
-        return bytes.size == 16 && ((bytes[0].toInt() and 0xfe) == 0xfc)
-    }
-
-    private fun isIpv4MappedPrivate(address: InetAddress): Boolean {
-        val bytes = address.address
-        if (bytes.size != 16) return false
-        val mapped = bytes.sliceArray(0..9).all { it.toInt() == 0 } &&
-            bytes[10].toInt() == 0xff && bytes[11].toInt() == 0xff
-        if (!mapped) return false
-        val v4 = InetAddress.getByAddress(bytes.copyOfRange(12, 16))
-        return v4.isAnyLocalAddress || v4.isLoopbackAddress || v4.isLinkLocalAddress ||
-            v4.isSiteLocalAddress || v4.isMulticastAddress || isCarrierGradeNat(v4)
-    }
-
-    private fun isCarrierGradeNat(address: InetAddress): Boolean {
-        val bytes = address.address
-        if (bytes.size != 4) return false
-        val first = bytes[0].toInt() and 0xff
-        val second = bytes[1].toInt() and 0xff
-        return first == 100 && second in 64..127
-    }
-
     private fun safePath(rawPath: String): File {
         val normalized = rawPath.trim().removePrefix("/").ifBlank { "." }
         require(!normalized.contains('\u0000')) { "Invalid path" }
         val target = File(workspace, normalized).canonicalFile
-        require(target.path == workspace.path || target.path.startsWith(workspace.path + File.separator)) {
-            "Path escapes app workspace"
-        }
+        require(target.path == workspace.path || target.path.startsWith(workspace.path + File.separator)) { "Path escapes app workspace" }
         return target
     }
 
