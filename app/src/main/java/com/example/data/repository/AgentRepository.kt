@@ -216,6 +216,7 @@ class AgentRepository(context: Context) {
 
     private fun AgentEntity.toModel() = AgentModel(
         id, name, description, icon, systemPrompt, primaryProvider, primaryModel,
+        fallbackProvider = fallbackProvider, fallbackModel = fallbackModel,
         temperature = temperature, maxSteps = maxSteps, approvalPolicy = approvalPolicy,
         computerPermission = computerPermission, shellPermission = shellPermission,
         filesystemPermission = filesystemPermission, networkPermission = networkPermission,
@@ -224,8 +225,9 @@ class AgentRepository(context: Context) {
 
     private fun AgentModel.toEntity() = AgentEntity(
         id, name, description, icon, systemPrompt, primaryProvider, primaryModel,
-        temperature, maxSteps, approvalPolicy, computerPermission, shellPermission,
-        filesystemPermission, networkPermission, automationPermission, subagentPermission
+        fallbackProvider, fallbackModel, temperature, maxSteps, approvalPolicy,
+        computerPermission, shellPermission, filesystemPermission, networkPermission,
+        automationPermission, subagentPermission
     )
 
     private fun MessageEntity.toModel() = MessageModel(id, conversationId, role, content, createdAt)

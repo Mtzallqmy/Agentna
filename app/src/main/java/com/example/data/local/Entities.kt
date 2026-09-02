@@ -12,6 +12,8 @@ data class AgentEntity(
     val systemPrompt: String,
     val primaryProvider: String,
     val primaryModel: String,
+    val fallbackProvider: String? = null,
+    val fallbackModel: String? = null,
     val temperature: Float,
     val maxSteps: Int,
     val approvalPolicy: String,
@@ -60,7 +62,7 @@ data class ExecutionLogEntity(
     val runId: String,
     val conversationId: String,
     val agentId: String,
-    val level: String, // info, warn, error, debug, tool
+    val level: String,
     val event: String,
     val message: String,
     val details: String = "",
@@ -70,10 +72,9 @@ data class ExecutionLogEntity(
 @Entity(tableName = "agent_states")
 data class AgentStateEntity(
     @PrimaryKey val agentId: String,
-    val status: String, // idle, running, awaiting_approval, stopped, error
+    val status: String,
     val currentTask: String = "",
     val activeUrl: String = "",
     val lastRunId: String = "",
     val updatedAt: Long = System.currentTimeMillis()
 )
-
